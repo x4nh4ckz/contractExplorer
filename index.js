@@ -14,7 +14,7 @@ function delay(time) {
   const addr = process.env.ADDR;
   const filter = process.env.FILTER;
   let assembledTxs = [];
-  const browser = await puppeteer.launch({ headless: false });
+  const browser = await puppeteer.launch({ headless: true });
   const page = await browser.newPage();
   // get contract's abi code
   await page.goto(`https://bscscan.com/address/${addr}#code`);
