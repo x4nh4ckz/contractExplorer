@@ -3,6 +3,7 @@ import fs from 'fs';
 import puppeteer from 'puppeteer';
 import Web3 from 'web3';
 import abiDecoder from 'abi-decoder';
+import db from './models/index.cjs';
 
 function delay(time) {
   return new Promise(function(resolve) { 
@@ -63,26 +64,51 @@ const parseTxs = async (txs, abi) => {
   const web3 = new Web3(process.env.WEB3_PROVIDER);
   abiDecoder.addABI(JSON.parse(abi));
   const amounts = await txs.map(async tx => {
-    try {
-      const richData = await web3.eth.getTransaction(tx).then(data => {
+    const exists = await db.Investor.findAll({
+      where: {
+        txHash: tx
+      }
+    });
+    if(!exists[0]) {
+      try {
+        const richData = await web3.eth.getTransaction(tx).then(data => {
+          return {
+            to: data.to,
+            sender: data.from,
+            transaction: tx,
+            block: data.blockNumber,
+            params: abiDecoder.decodeMethod(data.input).params
+          }
+        });
+        const amount = richData.params.filter(param => param.name == '_amount');
+        const sid = richData.params.filter(param => param.name == 'stableId');
+        await db.Investor.create({
+          investorAddress: richData.sender,
+          investingInAddress: richData.to,
+          amount: web3.utils.fromWei(amount[0].value, 'ether'),
+          sid: sid[0].value,
+          txHash: tx,
+          blockNumber: richData.block,
+        });
         return {
-          sender: data.from,
-          transaction: tx,
-          block: data.blockNumber,
-          params: abiDecoder.decodeMethod(data.input).params
-        }
-      });
-      const amount = richData.params.filter(param => param.name == '_amount');
-      const sid = richData.params.filter(param => param.name == 'stableId');
+          amount: web3.utils.fromWei(amount[0].value, 'ether'),
+          sid: sid[0].value,
+          sender: richData.sender,
+          transaction: richData.transaction,
+          block: richData.block
+        };
+      } catch(err) {
+        return null;
+      }
+    } else {
+      const data = exists[0];
       return {
-        amount: web3.utils.fromWei(amount[0].value, 'ether'),
-        sid: sid[0].value,
-        sender: richData.sender,
-        transaction: richData.transaction,
-        block: richData.block
+        amount: data.amount,
+        sid: data.sid,
+        sender: data.investorAddress,
+        transaction: data.txHash,
+        block: data.blockNumber
       };
-    } catch(err) {
-      return null;
     }
   });
   return Promise.all(amounts).then(amounts => {
